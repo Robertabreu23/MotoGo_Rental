@@ -1,3 +1,5 @@
+import { formatDateRangeFromApi } from '../lib/dates.js';
+
 const themeByType = {
   Motor: 'emerald',
   Deportivo: 'violet',
@@ -32,10 +34,14 @@ export function normalizeReservation(reservation = {}) {
   return {
     ...reservation,
     id: reservation.id ?? reservation.reserva_id,
+    codigo: reservation.codigo,
+    precio_total: reservation.precio_total,
+    // El vehículo embebido, normalizado, para poder mostrar su foto.
+    vehicle: Object.keys(vehicle).length ? normalizeVehicle(vehicle) : null,
     vehicleId: reservation.vehicleId || reservation.vehiculo_id || vehicle.id,
     vehicleName,
-    dates: reservation.dates || `${reservation.fecha_inicio || ''} - ${reservation.fecha_fin || ''}`,
-    status: reservation.status || reservation.estado || 'Disponible',
+    dates: reservation.dates || formatDateRangeFromApi(reservation.fecha_inicio, reservation.fecha_fin),
+    status: reservation.estado || reservation.status || '',
     theme: reservation.theme || themeByType[vehicleType] || 'emerald',
     deposito: reservation.deposito,
     fecha_inicio: reservation.fecha_inicio,

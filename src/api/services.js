@@ -1,15 +1,11 @@
 import { apiRequest } from './client.js';
 
 export function register(data) {
-  return apiRequest('/api/auth/register', { method: 'POST', body: data });
+  return apiRequest('/api/auth/register', { method: 'POST', body: data, authAttempt: true });
 }
 
 export function login(data) {
-  return apiRequest('/api/auth/login', { method: 'POST', body: data });
-}
-
-export function loginWithGoogle(idToken) {
-  return apiRequest('/api/auth/google', { method: 'POST', body: { idToken } });
+  return apiRequest('/api/auth/login', { method: 'POST', body: data, authAttempt: true });
 }
 
 export function getMe() {
@@ -52,8 +48,8 @@ export function deleteVehiculo(id) {
   return apiRequest(`/api/vehiculos/${id}`, { method: 'DELETE', protected: true });
 }
 
-export function getReservas() {
-  return apiRequest('/api/reservas', { protected: true });
+export function getReservas(filters = {}) {
+  return apiRequest('/api/reservas', { params: filters, protected: true });
 }
 
 export function getReservaById(id) {
@@ -68,10 +64,36 @@ export function cancelarReserva(id) {
   return apiRequest(`/api/reservas/${id}/cancelar`, { method: 'PATCH', protected: true });
 }
 
-export function iniciarReserva(id) {
-  return apiRequest(`/api/reservas/${id}/iniciar`, { method: 'PATCH', protected: true });
+// data opcional: { fotos_urls, combustible_pct, notas } — crea el RegistroEstado de entrega.
+export function iniciarReserva(id, data = {}) {
+  return apiRequest(`/api/reservas/${id}/iniciar`, { method: 'PATCH', body: data, protected: true });
 }
 
-export function finalizarReserva(id) {
-  return apiRequest(`/api/reservas/${id}/finalizar`, { method: 'PATCH', protected: true });
+// data opcional: { danios_reportados, notas, fotos_urls, combustible_pct } — devuelve el reembolso del depósito.
+export function finalizarReserva(id, data = {}) {
+  return apiRequest(`/api/reservas/${id}/finalizar`, { method: 'PATCH', body: data, protected: true });
+}
+
+export function crearPago(data) {
+  return apiRequest('/api/pagos', { method: 'POST', body: data, protected: true });
+}
+
+export function getPagosByReserva(reservaId) {
+  return apiRequest(`/api/pagos/reserva/${reservaId}`, { protected: true });
+}
+
+export function getMantenimientos(filters = {}) {
+  return apiRequest('/api/mantenimientos', { params: filters, protected: true });
+}
+
+export function getMantenimientoById(id) {
+  return apiRequest(`/api/mantenimientos/${id}`, { protected: true });
+}
+
+export function createMantenimiento(data) {
+  return apiRequest('/api/mantenimientos', { method: 'POST', body: data, protected: true });
+}
+
+export function updateMantenimiento(id, data) {
+  return apiRequest(`/api/mantenimientos/${id}`, { method: 'PATCH', body: data, protected: true });
 }

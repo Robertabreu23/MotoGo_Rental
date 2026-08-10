@@ -27,13 +27,18 @@ function buildUrl(path, params) {
   return url.toString();
 }
 
-function getErrorMessage(status, payload) {
-  if (status === 401) return 'Tu sesión expiró. Inicia sesión nuevamente.';
+function getErrorMessage(status, payload, authAttempt) {
+  // Un 401 al intentar entrar son credenciales malas, no una sesión vencida.
+  if (status === 401) {
+    return authAttempt
+      ? 'Correo o contraseña incorrectos.'
+      : 'Tu sesión expiró. Inicia sesión nuevamente.';
+  }
   if (status === 403) return 'No tienes permisos para realizar esta acción.';
   return payload?.message || payload?.error || 'Ocurrió un error al comunicarse con el servidor.';
 }
 
-export async function apiRequest(path, { method = 'GET', body, params, protected: protectedRoute = false } = {}) {
+export async function apiRequest(path, { method = 'GET', body, params, protected: protectedRoute = false, authAttempt = false } = {}) {
   const token = getToken();
   const headers = {};
 
@@ -56,12 +61,13 @@ export async function apiRequest(path, { method = 'GET', body, params, protected
   const payload = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    if (response.status === 401) {
+    // Fallar el login no debe disparar el cierre de sesión global.
+    if (response.status === 401 && !authAttempt) {
       clearToken();
       window.dispatchEvent(new CustomEvent(AUTH_EVENT));
     }
 
-    const error = new Error(getErrorMessage(response.status, payload));
+    const error = new Error(getErrorMessage(response.status, payload, authAttempt));
     error.status = response.status;
     error.payload = payload;
     throw error;

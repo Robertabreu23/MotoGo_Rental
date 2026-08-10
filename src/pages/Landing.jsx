@@ -1,11 +1,67 @@
+import { useEffect, useState } from 'react';
 import { ArrowRight, Bike, Search, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { VEHICLES } from '../data/vehicles.js';
+import { getVehiculos } from '../api/services.js';
+import { normalizeVehicle } from '../api/mappers.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { addDays, formatShortDate, todayISO } from '../lib/dates.js';
+import { VEHICULO } from '../lib/estados.js';
+import { formatRD } from '../lib/format.js';
 import VehicleCard from '../components/VehicleCard.jsx';
 import Footer from '../components/Footer.jsx';
 
+const ROTACION_MS = 4000;
+
 export default function Landing() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const hoy = todayISO();
+  const [vehicles, setVehicles] = useState([]);
+  const [loadingFeatured, setLoadingFeatured] = useState(true);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [failedPhotoIds, setFailedPhotoIds] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+
+    getVehiculos()
+      .then(data => {
+        if (!active) return;
+        setVehicles((Array.isArray(data) ? data : []).map(normalizeVehicle));
+      })
+      .catch(() => {
+        if (active) setVehicles([]);
+      })
+      .finally(() => {
+        if (active) setLoadingFeatured(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const featured = vehicles.filter(v => v.status === VEHICULO.DISPONIBLE).slice(0, 4);
+  const stats = {
+    total: vehicles.length,
+    ubicaciones: new Set(vehicles.map(v => v.location).filter(Boolean)).size,
+    rating: vehicles.length
+      ? (vehicles.reduce((sum, v) => sum + Number(v.rating || 0), 0) / vehicles.length).toFixed(1)
+      : '—',
+  };
+
+  useEffect(() => {
+    if (featured.length < 2) return;
+
+    const timer = setInterval(() => {
+      setHeroIndex(current => (current + 1) % featured.length);
+    }, ROTACION_MS);
+
+    return () => clearInterval(timer);
+  }, [featured.length]);
+
+  const hero = featured[heroIndex];
+  const heroPhoto = hero && !failedPhotoIds.includes(hero.id) ? hero.photos?.[0] : null;
 
   return (
     <div>
@@ -31,11 +87,11 @@ export default function Landing() {
               </div>
               <div className="px-3 py-2 border-l border-slate-100">
                 <div className="text-xs text-slate-500 font-semibold">RECOGIDA</div>
-                <div className="font-semibold text-slate-900 mt-1 text-sm">9 jun · 9:00</div>
+                <div className="font-semibold text-slate-900 mt-1 text-sm">{formatShortDate(hoy)} · 9:00</div>
               </div>
               <div className="px-3 py-2 border-l border-slate-100">
                 <div className="text-xs text-slate-500 font-semibold">DEVOLUCIÓN</div>
-                <div className="font-semibold text-slate-900 mt-1 text-sm">12 jun · 18:00</div>
+                <div className="font-semibold text-slate-900 mt-1 text-sm">{formatShortDate(addDays(hoy, 3))} · 18:00</div>
               </div>
               <button
                 onClick={() => navigate('/catalogo')}
@@ -47,28 +103,77 @@ export default function Landing() {
 
             <div className="mt-8 flex gap-10">
               <div>
-                <div className="text-3xl font-bold text-slate-900">1,200+</div>
-                <div className="text-sm text-slate-500">vehículos</div>
+                <div className="text-3xl font-bold text-slate-900">{stats.total}</div>
+                <div className="text-sm text-slate-500">vehículo(s) en flota</div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-slate-900">38</div>
-                <div className="text-sm text-slate-500">puntos de recogida</div>
+                <div className="text-3xl font-bold text-slate-900">{stats.ubicaciones}</div>
+                <div className="text-sm text-slate-500">punto(s) de recogida</div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-slate-900">4.9 ★</div>
+                <div className="text-3xl font-bold text-slate-900">{stats.rating} ★</div>
                 <div className="text-sm text-slate-500">valoración media</div>
               </div>
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-blue-600 to-blue-900 rounded-3xl aspect-square flex items-center justify-center relative overflow-hidden">
+          <button
+            type="button"
+            onClick={() => hero && navigate(`/vehiculo/${hero.id}`)}
+            disabled={!hero}
+            className="group bg-gradient-to-br from-blue-600 to-blue-900 rounded-3xl aspect-square flex items-center justify-center relative overflow-hidden w-full text-left"
+          >
             <Bike className="w-72 h-72 text-white/15" strokeWidth={1} />
-            <div className="absolute bottom-6 left-6 bg-white/10 backdrop-blur rounded-2xl px-4 py-3 text-white">
+
+            {/* Todas montadas a la vez: el cambio es un crossfade, no un salto. */}
+            {featured.map((item, index) => {
+              const url = item.photos?.[0];
+              if (!url || failedPhotoIds.includes(item.id)) return null;
+              const active = index === heroIndex;
+
+              return (
+                <img
+                  key={item.id}
+                  src={url}
+                  alt={item.name}
+                  onError={() => setFailedPhotoIds(current => [...current, item.id])}
+                  className={`hero-photo absolute inset-0 w-full h-full object-cover ${
+                    active ? 'opacity-100 scale-110' : 'opacity-0 scale-100'
+                  }`}
+                />
+              );
+            })}
+
+            <div
+              className={`absolute inset-0 bg-gradient-to-t from-slate-900/75 via-slate-900/10 to-transparent transition-opacity duration-700 ${
+                heroPhoto ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+
+            <div
+              key={hero?.id}
+              className="hero-caption absolute bottom-6 left-6 bg-white/10 backdrop-blur rounded-2xl px-4 py-3 text-white group-hover:bg-white/20 transition-colors"
+            >
               <div className="text-xs opacity-70">DISPONIBLE AHORA</div>
-              <div className="font-bold text-lg">Yamaha NMAX 155</div>
-              <div className="text-sm opacity-80">desde RD$1,650 / día</div>
+              <div className="font-bold text-lg">{hero?.name || 'Cargando flota...'}</div>
+              <div className="text-sm opacity-80">
+                {hero ? `desde ${formatRD(hero.price)} / día` : 'Un momento'}
+              </div>
             </div>
-          </div>
+
+            {featured.length > 1 && (
+              <div className="absolute bottom-8 right-6 flex gap-1.5">
+                {featured.map((item, index) => (
+                  <span
+                    key={item.id}
+                    className={`h-1.5 rounded-full bg-white transition-all duration-500 ${
+                      index === heroIndex ? 'w-5 opacity-100' : 'w-1.5 opacity-40'
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+          </button>
         </div>
       </section>
 
@@ -110,13 +215,20 @@ export default function Landing() {
               Ver catálogo <ArrowRight className="w-4 h-4" />
             </button>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {VEHICLES.slice(0, 4).map(v => <VehicleCard key={v.id} v={v} />)}
-          </div>
+          {loadingFeatured ? (
+            <div className="text-sm text-slate-500">Cargando vehículos...</div>
+          ) : featured.length === 0 ? (
+            <div className="text-sm text-slate-500">No hay vehículos disponibles en este momento.</div>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {featured.map(v => <VehicleCard key={v.id} v={v} />)}
+            </div>
+          )}
         </div>
       </section>
 
-      {/* CTA */}
+      {/* CTA: solo tiene sentido para quien todavía no tiene cuenta */}
+      {!isAuthenticated && (
       <section className="py-12 bg-slate-50">
         <div className="max-w-7xl mx-auto px-6">
           <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-3xl p-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -136,6 +248,7 @@ export default function Landing() {
           </div>
         </div>
       </section>
+      )}
 
       <Footer />
     </div>

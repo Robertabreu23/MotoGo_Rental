@@ -1,9 +1,14 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { clearToken, getToken, onUnauthorized, setToken } from '../api/client.js';
-import { getMe, login as loginRequest, loginWithGoogle as loginWithGoogleRequest, register as registerRequest } from '../api/services.js';
+import { getMe, login as loginRequest, register as registerRequest } from '../api/services.js';
 import { getUserInitials, getUserRole } from '../api/mappers.js';
 
 const AuthContext = createContext(null);
+
+// El backend envuelve el usuario: login devuelve { token, usuario } y /users/me devuelve { usuario }.
+function extractUser(payload) {
+  return payload?.usuario || payload?.user || payload;
+}
 
 function normalizeUser(user) {
   if (!user) return null;
@@ -25,7 +30,7 @@ export function AuthProvider({ children }) {
 
   const applySession = (authData) => {
     const nextToken = authData?.token;
-    const nextUser = authData?.usuario || authData?.user || authData;
+    const nextUser = extractUser(authData);
 
     if (nextToken) {
       setToken(nextToken);
@@ -49,20 +54,11 @@ export function AuthProvider({ children }) {
     return applySession(authData);
   };
 
-  const loginWithGoogle = async (idToken) => {
-    const authData = await loginWithGoogleRequest(idToken);
-    return applySession(authData);
-  };
-
   const logout = () => {
     clearToken();
     setAuthToken(null);
     setRoleState(null);
     setUser(null);
-  };
-
-  const setRole = (selectedRole) => {
-    setRoleState(selectedRole);
   };
 
   useEffect(() => {
@@ -77,7 +73,7 @@ export function AuthProvider({ children }) {
     getMe()
       .then(currentUser => {
         if (!active) return;
-        const normalizedUser = normalizeUser(currentUser);
+        const normalizedUser = normalizeUser(extractUser(currentUser));
         setUser(normalizedUser);
         setRoleState(getUserRole(normalizedUser));
         setAuthError(null);
@@ -102,7 +98,7 @@ export function AuthProvider({ children }) {
   }), []);
 
   return (
-    <AuthContext.Provider value={{ role, user, token, loading, authError, login, register, loginWithGoogle, logout, setRole, isAuthenticated: Boolean(token) }}>
+    <AuthContext.Provider value={{ role, user, token, loading, authError, login, register, logout, isAuthenticated: Boolean(token) }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Heart, MapPin, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { themes } from '../lib/themes.js';
@@ -7,13 +8,24 @@ import VehicleIcon from './VehicleIcon.jsx';
 
 export default function VehicleCard({ v, isFavorite = false, favoriteLoading = false, onToggleFavorite }) {
   const navigate = useNavigate();
+  const [photoFailed, setPhotoFailed] = useState(false);
   const t = themes[v.theme] || themes.emerald;
   const isUnavailable = v.status !== 'Disponible';
+  const photo = !photoFailed ? v.photos?.[0] : null;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-lg transition flex flex-col">
-      <div className={`relative h-36 bg-gradient-to-br ${t.bg} flex items-center justify-center`}>
-        <VehicleIcon type={v.type} theme={v.theme} />
+      <div className={`relative h-36 bg-gradient-to-br ${t.bg} flex items-center justify-center overflow-hidden`}>
+        {photo ? (
+          <img
+            src={photo}
+            alt={v.name}
+            onError={() => setPhotoFailed(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <VehicleIcon type={v.type} theme={v.theme} />
+        )}
         <div className="absolute top-3 left-3">
           <StatusBadge status={v.status} />
         </div>

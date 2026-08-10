@@ -1,52 +1,84 @@
 import { useState } from 'react';
-import { Bike, ClipboardCheck, Lock, Mail, Phone, ShieldCheck, Smartphone, User } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Bike, Lock, Mail, Phone, User } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import Logo from '../components/Logo.jsx';
-import GoogleSignInButton from '../components/GoogleSignInButton.jsx';
+
+function MensajeError({ texto }) {
+  // Un espacio significa "resalta el campo" sin repetir el mensaje del banner.
+  if (!texto || texto.trim() === '') return null;
+  return <p className="mt-1 text-xs text-red-600">{texto}</p>;
+}
 
 export default function Login() {
-  const [role, setRole] = useState('cliente');
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ nombre: '', correo: '', password: '', telefono: '', cedula: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const { login, register, loginWithGoogle } = useAuth();
+  const [fieldErrors, setFieldErrors] = useState({});
+  const { login, register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const updateField = (field, value) => setForm(current => ({ ...current, [field]: value }));
+  const updateField = (field, value) => {
+    setForm(current => ({ ...current, [field]: value }));
+    // Al corregir el campo desaparece su error, no al enviar de nuevo.
+    setFieldErrors(current => (current[field] ? { ...current, [field]: null } : current));
+  };
 
+  const cambiarModo = (nextMode) => {
+    setMode(nextMode);
+    setError(null);
+    setFieldErrors({});
+  };
+
+  const validar = () => {
+    const errores = {};
+
+    if (!form.correo.trim()) errores.correo = 'Escribe tu correo.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.correo.trim())) errores.correo = 'Ese correo no tiene un formato válido.';
+
+    if (!form.password) errores.password = 'Escribe tu contraseña.';
+    else if (mode === 'register' && form.password.length < 8) errores.password = 'La contraseña debe tener al menos 8 caracteres.';
+
+    if (mode === 'register' && !form.nombre.trim()) errores.nombre = 'Escribe tu nombre.';
+
+    return errores;
+  };
+
+  const bordeDe = (campo) =>
+    fieldErrors[campo] ? 'border-red-400 focus:border-red-500' : 'border-slate-300 focus:border-blue-500';
+
+  // El rol lo define el backend, no el usuario: aquí solo se decide a dónde aterriza.
   const navigateByRole = (nextRole) => {
-    if (nextRole === 'operador') navigate('/operaciones');
-    else if (nextRole === 'admin') navigate('/admin');
-    else navigate('/catalogo');
+    const from = location.state?.from?.pathname;
+    if (from) navigate(from, { replace: true });
+    else if (nextRole === 'operador') navigate('/operaciones', { replace: true });
+    else if (nextRole === 'admin') navigate('/admin', { replace: true });
+    else navigate('/catalogo', { replace: true });
   };
 
   const handleSubmit = async () => {
+    const errores = validar();
+    setFieldErrors(errores);
+
+    if (Object.keys(errores).length > 0) {
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
       const user = mode === 'register'
-        ? await register(form)
-        : await login({ correo: form.correo, password: form.password });
-      navigateByRole(user?.rol || user?.role || role);
+        ? await register({ ...form, correo: form.correo.trim() })
+        : await login({ correo: form.correo.trim(), password: form.password });
+      navigateByRole(user?.rol || user?.role || 'cliente');
     } catch (err) {
       setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleCredential = async (idToken) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const user = await loginWithGoogle(idToken);
-      navigateByRole(user?.rol || user?.role || role);
-    } catch (err) {
-      setError(err.message);
+      // Un 401 en el login siempre es credencial mala: se resalta el par completo.
+      if (err.status === 401) setFieldErrors({ correo: ' ', password: ' ' });
     } finally {
       setLoading(false);
     }
@@ -72,43 +104,17 @@ export default function Login() {
 
           <div className="mt-6 bg-slate-100 rounded-xl p-1 flex">
             <button
-              onClick={() => setMode('login')}
+              onClick={() => cambiarModo('login')}
               className={`flex-1 py-2 rounded-lg text-sm font-semibold ${mode === 'login' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
             >
               Iniciar sesión
             </button>
             <button
-              onClick={() => setMode('register')}
+              onClick={() => cambiarModo('register')}
               className={`flex-1 py-2 rounded-lg text-sm font-medium ${mode === 'register' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
             >
               Registrarse
             </button>
-          </div>
-
-          <div className="mt-6">
-            <label className="text-sm font-medium text-slate-700">Soy</label>
-            <div className="grid grid-cols-3 gap-2 mt-2">
-              {[
-                { id: 'cliente', label: 'Cliente', icon: User },
-                { id: 'operador', label: 'Operador', icon: ClipboardCheck },
-                { id: 'admin', label: 'Administrador', icon: ShieldCheck },
-              ].map(r => {
-                const Icon = r.icon;
-                const active = role === r.id;
-                return (
-                  <button
-                    key={r.id}
-                    onClick={() => setRole(r.id)}
-                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${
-                      active ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span className="text-xs font-medium">{r.label}</span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           {mode === 'register' && (
@@ -119,9 +125,10 @@ export default function Login() {
                 <input
                   value={form.nombre}
                   onChange={(event) => updateField('nombre', event.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 outline-none focus:border-blue-500"
+                  className={`w-full pl-10 pr-3 py-2.5 rounded-xl border bg-white text-slate-900 outline-none ${bordeDe('nombre')}`}
                 />
               </div>
+              <MensajeError texto={fieldErrors.nombre} />
             </div>
           )}
 
@@ -133,9 +140,11 @@ export default function Login() {
                 type="email"
                 value={form.correo}
                 onChange={(event) => updateField('correo', event.target.value)}
-                className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 outline-none focus:border-blue-500"
+                onKeyDown={(event) => event.key === 'Enter' && handleSubmit()}
+                className={`w-full pl-10 pr-3 py-2.5 rounded-xl border bg-white text-slate-900 outline-none ${bordeDe('correo')}`}
               />
             </div>
+            <MensajeError texto={fieldErrors.correo} />
           </div>
           <div className="mt-4">
             <label className="text-sm font-medium text-slate-700">Contraseña</label>
@@ -145,9 +154,11 @@ export default function Login() {
                 type="password"
                 value={form.password}
                 onChange={(event) => updateField('password', event.target.value)}
-                className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 bg-white outline-none focus:border-blue-500"
+                onKeyDown={(event) => event.key === 'Enter' && handleSubmit()}
+                className={`w-full pl-10 pr-3 py-2.5 rounded-xl border bg-white outline-none ${bordeDe('password')}`}
               />
             </div>
+            <MensajeError texto={fieldErrors.password} />
           </div>
 
           {mode === 'register' && (
@@ -184,20 +195,9 @@ export default function Login() {
             {loading ? 'Procesando...' : mode === 'login' ? 'Entrar' : 'Crear cuenta'}
           </button>
 
-          <div className="mt-5 text-xs text-slate-500 text-center">o continúa con</div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            <GoogleSignInButton
-              onCredential={handleGoogleCredential}
-              onError={setError}
-              disabled={loading}
-            />
-            <button className="py-2.5 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 flex items-center justify-center gap-2 bg-white">
-              <Smartphone className="w-4 h-4" /> Inicio rápido
-            </button>
-          </div>
           <div className="mt-5 text-sm text-center text-slate-500">
             {mode === 'login' ? '¿No tienes cuenta?' : '¿Ya tienes cuenta?'}{' '}
-            <button onClick={() => setMode(mode === 'login' ? 'register' : 'login')} className="text-blue-600 font-semibold cursor-pointer">
+            <button onClick={() => cambiarModo(mode === 'login' ? 'register' : 'login')} className="text-blue-600 font-semibold cursor-pointer">
               {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
             </button>
           </div>
