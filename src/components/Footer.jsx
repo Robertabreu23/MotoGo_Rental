@@ -24,7 +24,7 @@ export default function Footer() {
         ))}
       </div>
       <div className="max-w-7xl mx-auto px-6 mt-10 pt-6 border-t border-slate-800 flex justify-between text-xs text-slate-400">
-        <div>© 2026 MotoGo · Santo Domingo, RD</div>
+        <div>© {new Date().getFullYear()} MotoGo · Santo Domingo, RD</div>
         <div>Pagos seguros con Azul · tPago · Stripe</div>
       </div>
     </footer>

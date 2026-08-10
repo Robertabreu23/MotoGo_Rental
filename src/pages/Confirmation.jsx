@@ -1,10 +1,18 @@
-import { Bike, CheckCircle2, MessageCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { themes } from '../lib/themes.js';
+import { CheckCircle2, MessageCircle } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { normalizeReservation, normalizeVehicle } from '../api/mappers.js';
+import { formatRD } from '../lib/format.js';
 import StatusBadge from '../components/StatusBadge.jsx';
+import VehicleThumb from '../components/VehicleThumb.jsx';
 
 export default function Confirmation() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const reservation = normalizeReservation(location.state?.reserva || {});
+  const vehicle = normalizeVehicle(location.state?.vehicle || {});
+  const pago = location.state?.pago;
+  const pasarelas = { azul: 'Azul', tpago: 'tPago', stripe: 'Stripe' };
+  const totalPagado = pago?.monto ?? reservation.precio_total;
 
   return (
     <div className="bg-slate-50 min-h-screen">
@@ -21,24 +29,28 @@ export default function Confirmation() {
           <div className="mt-8 bg-slate-50 rounded-2xl p-6 text-left">
             <div className="flex items-center justify-between mb-4">
               <div className="text-xs text-slate-500 font-semibold tracking-wider">CÓDIGO</div>
-              <div className="font-mono font-bold text-slate-900">RES-8K42Q</div>
+              <div className="font-mono font-bold text-slate-900">{reservation.codigo || reservation.id || 'Reserva creada'}</div>
             </div>
             <div className="grid md:grid-cols-[1fr_auto] gap-4 items-center">
               <div className="flex items-center gap-3">
-                <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${themes.violet.bg} flex items-center justify-center`}>
-                  <Bike className="w-8 h-8 text-violet-400 opacity-60" strokeWidth={1.2} />
-                </div>
+                <VehicleThumb vehicle={vehicle} className="w-16 h-16 rounded-xl shrink-0" iconClassName="w-8 h-8" />
                 <div>
-                  <div className="font-bold text-slate-900">Yamaha NMAX 155</div>
-                  <div className="text-sm text-slate-500">Naco, Santo Domingo</div>
+                  <div className="font-bold text-slate-900">{vehicle.name || reservation.vehicleName}</div>
+                  <div className="text-sm text-slate-500">{vehicle.location}</div>
                 </div>
               </div>
-              <StatusBadge status="En alquiler" />
+              <StatusBadge status={reservation.status || 'Disponible'} />
             </div>
             <div className="mt-5 space-y-2 text-sm border-t border-slate-200 pt-4">
-              <div className="flex justify-between"><span className="text-slate-600">Periodo</span><span className="font-semibold text-slate-900">9 jun, 9:00 → 12 jun, 18:00</span></div>
-              <div className="flex justify-between"><span className="text-slate-600">Total pagado</span><span className="font-semibold text-slate-900">RD$5,200</span></div>
-              <div className="flex justify-between"><span className="text-slate-600">Depósito (reembolsable)</span><span className="font-semibold text-slate-900">RD$1,000</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Periodo</span><span className="font-semibold text-slate-900">{reservation.dates}</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Total pagado</span><span className="font-semibold text-slate-900">{formatRD(Number(totalPagado || 0))}</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Depósito (reembolsable)</span><span className="font-semibold text-slate-900">{formatRD(Number(reservation.deposito || 0))}</span></div>
+              {pago && (
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Pago vía {pasarelas[pago.pasarela] || pago.pasarela}</span>
+                  <span className="font-mono text-xs text-slate-500">{pago.referencia_pasarela}</span>
+                </div>
+              )}
             </div>
           </div>
 
