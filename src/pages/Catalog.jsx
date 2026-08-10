@@ -1,20 +1,65 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CalendarDays, Filter } from 'lucide-react';
-import { VEHICLES } from '../data/vehicles.js';
+import { getVehiculos } from '../api/services.js';
+import { normalizeVehicle } from '../api/mappers.js';
 import VehicleCard from '../components/VehicleCard.jsx';
+
+const typeTabs = {
+  Todos: [],
+  Motores: ['Motor'],
+  Deportivos: ['Deportivo'],
+  Bicicletas: ['Bicicleta'],
+  Carros: ['Carro'],
+};
 
 export default function Catalog() {
   const [filter, setFilter] = useState('Todos');
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedTypes, setSelectedTypes] = useState([]);
+  const [maxPrice, setMaxPrice] = useState(2400);
+  const [availableOnly, setAvailableOnly] = useState(false);
+  const [favoriteIds, setFavoriteIds] = useState([]);
+  const [favoriteLoadingId, setFavoriteLoadingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const filtered = filter === 'Todos'
-    ? VEHICLES
-    : VEHICLES.filter(v => {
-        if (filter === 'Motores')    return v.type === 'Motor';
-        if (filter === 'Deportivos') return v.type === 'Deportivo';
-        if (filter === 'Bicicletas') return v.type === 'Bicicleta';
-        if (filter === 'Carros')     return v.type === 'Carro';
-        return true;
-      });
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+
+    getVehiculos()
+      .then(data => setVehicles((Array.isArray(data) ? data : []).map(normalizeVehicle)))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleToggleFavorite = (vehiculoId) => {
+    setFavoriteLoadingId(vehiculoId);
+    setFavoriteIds(current => current.includes(vehiculoId) ? current.filter(id => id !== vehiculoId) : [...current, vehiculoId]);
+    setFavoriteLoadingId(null);
+  };
+
+  const toggleType = (type) => {
+    setFilter('Todos');
+    setSelectedTypes(current => current.includes(type) ? current.filter(t => t !== type) : [...current, type]);
+  };
+
+  const handleTabFilter = (tab) => {
+    setFilter(tab);
+    setSelectedTypes(typeTabs[tab]);
+  };
+
+  const typeCounts = vehicles.reduce((counts, vehicle) => ({
+    ...counts,
+    [vehicle.type]: (counts[vehicle.type] || 0) + 1,
+  }), {});
+
+  const filtered = vehicles.filter(vehicle => {
+    const matchesType = selectedTypes.length === 0 || selectedTypes.includes(vehicle.type);
+    const matchesPrice = Number(vehicle.price) <= Number(maxPrice);
+    const matchesAvailability = !availableOnly || vehicle.status === 'Disponible';
+    return matchesType && matchesPrice && matchesAvailability;
+  });
 
   return (
     <div className="bg-slate-50 min-h-screen">
@@ -26,26 +71,35 @@ export default function Catalog() {
             <div>
               <div className="text-sm font-semibold text-slate-700 mb-2">Tipo de vehículo</div>
               <div className="space-y-2">
-                {[['Motor', 3], ['Bicicleta', 2], ['Deportivo', 4], ['Carro', 2]].map(([t, n]) => (
+                {['Motor', 'Bicicleta', 'Deportivo', 'Carro'].map(t => (
                   <label key={t} className="flex items-center justify-between text-sm text-slate-600">
                     <span className="flex items-center gap-2">
-                      <input type="checkbox" className="rounded border-slate-300" />
+                      <input
+                        type="checkbox"
+                        checked={selectedTypes.includes(t)}
+                        onChange={() => toggleType(t)}
+                        className="rounded border-slate-300"
+                      />
                       {t}
                     </span>
-                    <span className="text-slate-400 text-xs">{n}</span>
+                    <span className="text-slate-400 text-xs">{typeCounts[t] || 0}</span>
                   </label>
                 ))}
               </div>
             </div>
             <div>
               <div className="text-sm font-semibold text-slate-700 mb-2">Precio por día</div>
-              <div className="h-1.5 bg-slate-200 rounded-full relative">
-                <div className="absolute h-1.5 bg-blue-600 rounded-full" style={{ left: '0%', right: '30%' }} />
-                <div className="absolute w-3 h-3 bg-blue-600 rounded-full -top-0.5" style={{ left: '0%' }} />
-                <div className="absolute w-3 h-3 bg-blue-600 rounded-full -top-0.5" style={{ right: '30%' }} />
-              </div>
+              <input
+                type="range"
+                min="420"
+                max="2400"
+                step="10"
+                value={maxPrice}
+                onChange={(event) => setMaxPrice(event.target.value)}
+                className="w-full accent-blue-600"
+              />
               <div className="flex justify-between text-xs text-slate-500 mt-2">
-                <span>RD$420</span><span>RD$2,400</span>
+                <span>RD$420</span><span>RD${Number(maxPrice).toLocaleString('en-US')}</span>
               </div>
             </div>
             <div>
@@ -70,7 +124,12 @@ export default function Catalog() {
             <div>
               <div className="text-sm font-semibold text-slate-700 mb-2">Disponibilidad</div>
               <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input type="checkbox" className="rounded border-slate-300" /> Solo disponibles ahora
+                <input
+                  type="checkbox"
+                  checked={availableOnly}
+                  onChange={(event) => setAvailableOnly(event.target.checked)}
+                  className="rounded border-slate-300"
+                /> Solo disponibles ahora
               </label>
             </div>
           </div>
@@ -94,7 +153,7 @@ export default function Catalog() {
             {['Todos', 'Motores', 'Deportivos', 'Bicicletas', 'Carros'].map(t => (
               <button
                 key={t}
-                onClick={() => setFilter(t)}
+                onClick={() => handleTabFilter(t)}
                 className={`px-4 py-2 rounded-full text-sm font-medium border ${
                   filter === t
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -106,9 +165,21 @@ export default function Catalog() {
             ))}
           </div>
 
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {filtered.map(v => <VehicleCard key={v.id} v={v} />)}
-          </div>
+          {loading && <div className="rounded-2xl bg-white border border-slate-200 p-6 text-sm text-slate-500">Cargando vehículos...</div>}
+          {error && <div className="rounded-2xl bg-red-50 border border-red-100 p-6 text-sm text-red-700">{error}</div>}
+          {!loading && !error && (
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+              {filtered.map(v => (
+                <VehicleCard
+                  key={v.id}
+                  v={v}
+                  isFavorite={favoriteIds.includes(v.id)}
+                  favoriteLoading={favoriteLoadingId === v.id}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              ))}
+            </div>
+          )}
         </main>
       </div>
     </div>

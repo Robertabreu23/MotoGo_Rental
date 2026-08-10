@@ -1,8 +1,29 @@
+import { useEffect, useState } from 'react';
 import { AlertTriangle, BarChart3, ClipboardList, Package, Settings, TrendingUp, Users, Wrench } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { getAdminOnly } from '../api/services.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import { formatRD } from '../lib/format.js';
 import StatusBadge from '../components/StatusBadge.jsx';
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+
+    getAdminOnly()
+      .then(() => setError(null))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [isAuthenticated, navigate]);
+
   const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun'];
   const revenue = [780, 850, 950, 1020, 1120, 1320];
   const max = 1400;
@@ -36,6 +57,8 @@ export default function AdminDashboard() {
     ['Yamaha BWS 125 · neumáticos',         'Desgaste al 70%',                  'amber'],
   ];
 
+  if (loading) return <div className="bg-slate-50 min-h-screen p-8 text-sm text-slate-500">Validando permisos...</div>;
+
   return (
     <div className="bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-8 grid lg:grid-cols-[220px_1fr] gap-6">
@@ -58,6 +81,7 @@ export default function AdminDashboard() {
 
         {/* Main */}
         <main>
+          {error && <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
           <div className="flex items-end justify-between">
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Resumen de operación</h1>

@@ -1,17 +1,57 @@
+import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, ArrowRight, Camera, CheckCircle2, Image as ImageIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { finalizarReserva, getReservas } from '../api/services.js';
+import { normalizeReservation } from '../api/mappers.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 export default function OperatorPanel() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const [reservation, setReservation] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+
+    getReservas()
+      .then(data => setReservation((Array.isArray(data) ? data : []).map(normalizeReservation)[0] || null))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [isAuthenticated, navigate]);
+
+  const handleFinalizar = async () => {
+    if (!reservation?.id) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await finalizarReserva(reservation.id);
+      navigate('/mis-reservas');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="bg-slate-50 min-h-screen p-8 text-sm text-slate-500">Cargando operación...</div>;
 
   return (
     <div className="bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="text-xs text-emerald-600 font-bold tracking-wider">PANEL DEL OPERADOR</div>
-        <h1 className="text-3xl font-bold text-slate-900 mt-2">Devolución · Honda PCX 160</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mt-2">Devolución · {reservation?.vehicleName || 'Sin reserva seleccionada'}</h1>
         <p className="text-slate-500 mt-1">
-          Reserva <span className="font-mono">RES-8K42Q</span> · Cliente: Juan Martínez · Punto: Bella Vista, SD
+          Reserva <span className="font-mono">{reservation?.id || 'N/A'}</span> · Estado: {reservation?.status || 'No disponible'}
         </p>
+        {error && <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 mt-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-6">
@@ -75,10 +115,11 @@ export default function OperatorPanel() {
               <span>Se retiene RD$150 por el rayón reportado.</span>
             </div>
             <button
-              onClick={() => navigate('/mis-reservas')}
-              className="mt-5 w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-2"
+              onClick={handleFinalizar}
+              disabled={!reservation?.id || saving}
+              className="mt-5 w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              <CheckCircle2 className="w-4 h-4" /> Cerrar reserva
+              <CheckCircle2 className="w-4 h-4" /> {saving ? 'Cerrando...' : 'Cerrar reserva'}
             </button>
           </div>
         </div>

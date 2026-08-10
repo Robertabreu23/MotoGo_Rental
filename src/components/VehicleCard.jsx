@@ -5,9 +5,9 @@ import { formatRD } from '../lib/format.js';
 import StatusBadge from './StatusBadge.jsx';
 import VehicleIcon from './VehicleIcon.jsx';
 
-export default function VehicleCard({ v }) {
+export default function VehicleCard({ v, isFavorite = false, favoriteLoading = false, onToggleFavorite }) {
   const navigate = useNavigate();
-  const t = themes[v.theme];
+  const t = themes[v.theme] || themes.emerald;
   const isUnavailable = v.status !== 'Disponible';
 
   return (
@@ -17,8 +17,14 @@ export default function VehicleCard({ v }) {
         <div className="absolute top-3 left-3">
           <StatusBadge status={v.status} />
         </div>
-        <button className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center">
-          <Heart className="w-4 h-4 text-slate-400" />
+        <button
+          type="button"
+          onClick={() => onToggleFavorite?.(v.id)}
+          disabled={favoriteLoading}
+          aria-label={isFavorite ? 'Eliminar de favoritos' : 'Agregar a favoritos'}
+          className={`absolute top-3 right-3 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center transition disabled:opacity-60 ${isFavorite ? 'text-rose-500' : 'text-slate-400 hover:text-rose-500'}`}
+        >
+          <Heart className={`w-4 h-4 ${isFavorite ? 'fill-rose-500' : ''}`} />
         </button>
       </div>
       <div className="p-4 flex-1 flex flex-col">

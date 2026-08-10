@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { MapPin, Star } from 'lucide-react';
-import { getVehicleById } from '../data/vehicles.js';
+import { getVehiculoById } from '../api/services.js';
+import { normalizeVehicle } from '../api/mappers.js';
 import { themes } from '../lib/themes.js';
 import { formatRD } from '../lib/format.js';
 import StatusBadge from '../components/StatusBadge.jsx';
@@ -9,8 +11,26 @@ import VehicleIcon from '../components/VehicleIcon.jsx';
 export default function VehicleDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const v = getVehicleById(id) || getVehicleById(2);
-  const t = themes[v.theme];
+  const [vehicle, setVehicle] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+
+    getVehiculoById(id)
+      .then(data => setVehicle(normalizeVehicle(data)))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) return <div className="bg-slate-50 min-h-screen p-8 text-sm text-slate-500">Cargando vehículo...</div>;
+  if (error) return <div className="bg-slate-50 min-h-screen p-8 text-sm text-red-700">{error}</div>;
+  if (!vehicle) return <div className="bg-slate-50 min-h-screen p-8 text-sm text-slate-500">Vehículo no encontrado.</div>;
+
+  const v = vehicle;
+  const t = themes[v.theme] || themes.emerald;
 
   return (
     <div className="bg-slate-50 min-h-screen">
@@ -37,8 +57,7 @@ export default function VehicleDetail() {
                 <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />{v.location}</span>
               </div>
               <p className="text-slate-600 mt-4">
-                {v.name} en excelente estado, ideal para moverte por la ciudad. Incluye casco,
-                candado y seguro básico. Entrega y devolución en el punto de recogida indicado.
+                {v.description || `${v.name} en excelente estado, ideal para moverte por la ciudad. Incluye casco, candado y seguro básico. Entrega y devolución en el punto de recogida indicado.`}
               </p>
 
               <div className="grid grid-cols-4 gap-4 mt-6">
@@ -135,7 +154,7 @@ export default function VehicleDetail() {
               </div>
 
               <button
-                onClick={() => navigate('/reserva')}
+                onClick={() => navigate(`/reserva?vehiculo_id=${v.id}`)}
                 className="mt-5 w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold"
               >
                 Reservar ahora
