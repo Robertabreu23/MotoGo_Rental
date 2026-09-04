@@ -1,5 +1,5 @@
 import { apiRequest } from './client.js';
-
+//this is a small change to see if it blocks de merge
 export function register(data) {
   return apiRequest('/api/auth/register', { method: 'POST', body: data, authAttempt: true });
 }

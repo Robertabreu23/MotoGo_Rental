@@ -1,0 +1,217 @@
+name: Security Headers Scan
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  security_headers_scan:
+    name: security_headers_scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_URL: ${{ vars.TARGET_URL || 'moto-go-rental-jf52.vercel.app' }}
+      REQUIRED_GRADE: "A"
+      OBS_API: "https://observatory-api.mdn.mozilla.net/api/v2/scan"
+    steps:
+      - name: Run HTTP Observatory scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fail() {
+            CODE="$1"; MSG="$2"; HINT="${3:-}"
+            echo ""
+            echo "========================================"
+            echo "❌ SECURITY CHECK FAILED"
+            echo "========================================"
+            echo ""
+            echo "Error code : ${CODE}"
+            echo "Reason     : ${MSG}"
+            [ -n "${HINT}" ] && echo "Action     : ${HINT}"
+            echo ""
+            echo "Merge must be blocked."
+            {
+              echo "### ❌ Security headers check failed"
+              echo ""
+              echo "| Campo | Valor |"
+              echo "|---|---|"
+              echo "| Error | \`${CODE}\` |"
+              echo "| Motivo | ${MSG} |"
+              [ -n "${HINT}" ] && echo "| Acción | ${HINT} |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+
+          echo "========================================"
+          echo " SECURITY HEADERS SCAN"
+          echo "========================================"
+          echo ""
+          echo "URL: ${TARGET_URL:-<no definida>}"
+          echo "Scanner: MDN HTTP Observatory"
+          echo ""
+
+          # --- 1. Configuración ---
+          [ -n "${TARGET_URL:-}" ] || fail "E_CONFIG" \
+            "TARGET_URL no está definida." \
+            "Settings → Secrets and variables → Actions → Variables → crea TARGET_URL (solo el dominio)."
+
+          case "${TARGET_URL}" in
+            http://*|https://*)
+              fail "E_CONFIG" "TARGET_URL no debe incluir el esquema (recibido: ${TARGET_URL})." \
+                "Usa solo el dominio: moto-go-rental-jf52.vercel.app" ;;
+            */*)
+              fail "E_CONFIG" "TARGET_URL no debe incluir rutas ni slash final (recibido: ${TARGET_URL})." \
+                "Usa solo el dominio: moto-go-rental-jf52.vercel.app" ;;
+          esac
+
+          # --- 2. Llamada a la API ---
+          set +e
+          HTTP_CODE=$(curl -sS -X POST \
+            --get "${OBS_API}" \
+            --data-urlencode "host=${TARGET_URL}" \
+            --max-time 120 \
+            --retry 2 --retry-delay 10 --retry-all-errors \
+            -o response.json \
+            -w '%{http_code}')
+          CURL_RC=$?
+          set -e
+
+          if [ "${CURL_RC}" -ne 0 ]; then
+            case "${CURL_RC}" in
+              6)  fail "E_DNS" "El runner no pudo resolver el host de la API (curl exit 6)." \
+                    "Verifica DNS / salida a internet del runner." ;;
+              7)  fail "E_CONNECT" "No se pudo conectar a la API (curl exit 7)." \
+                    "Verifica firewall o proxy hacia observatory-api.mdn.mozilla.net:443." ;;
+              28) fail "E_TIMEOUT" "La API no respondió en 120s (curl exit 28), tras 3 intentos." \
+                    "El sitio puede ser lento o la API estar saturada. Re-run el job." ;;
+              35|60) fail "E_TLS" "Fallo TLS/certificado al conectar con la API (curl exit ${CURL_RC})." \
+                    "Revisa CA certificates o proxy TLS." ;;
+              *)  fail "E_CURL" "curl falló con código ${CURL_RC}." \
+                    "Consulta: https://curl.se/libcurl/c/libcurl-errors.html" ;;
+            esac
+          fi
+
+          # --- 3. Código HTTP ---
+          if [ "${HTTP_CODE}" != "200" ]; then
+            BODY=$(head -c 500 response.json 2>/dev/null || true)
+            case "${HTTP_CODE}" in
+              429) fail "E_HTTP_429" "Rate limit de la API (HTTP 429)." \
+                     "Observatory permite 1 scan por host por minuto. Espera y reintenta." ;;
+              4*)  fail "E_HTTP_4xx" "La API rechazó la petición (HTTP ${HTTP_CODE}). Respuesta: ${BODY}" \
+                     "Revisa que TARGET_URL sea un dominio válido." ;;
+              5*)  fail "E_HTTP_5xx" "La API está fallando (HTTP ${HTTP_CODE}). Respuesta: ${BODY}" \
+                     "Problema del lado de Observatory. Reintenta más tarde." ;;
+              *)   fail "E_HTTP" "Código HTTP inesperado: ${HTTP_CODE}. Respuesta: ${BODY}" ;;
+            esac
+          fi
+
+          # --- 4. JSON y errores del scanner ---
+          jq -e . response.json >/dev/null 2>&1 \
+            || fail "E_JSON" "HTTP 200 pero el cuerpo no es JSON: $(head -c 300 response.json)" \
+                 "Posible página de error intermedia (proxy/captive portal)."
+
+          API_ERROR=$(jq -r '.error // empty' response.json)
+          API_MSG=$(jq -r '.message // empty' response.json)
+          if [ -n "${API_ERROR}" ]; then
+            case "${API_ERROR}" in
+              invalid-hostname-lookup|invalid-hostname)
+                fail "E_SCANNER" "El scanner no pudo resolver '${TARGET_URL}' (${API_ERROR}): ${API_MSG}" \
+                  "Confirma que el deployment de Vercel está activo y es público." ;;
+              site-down|connection-refused|error-timeout)
+                fail "E_SCANNER" "El scanner no pudo alcanzar '${TARGET_URL}' (${API_ERROR}): ${API_MSG}" \
+                  "Revisa Deployment Protection en Vercel; si pide login, el scanner recibe 401." ;;
+              *)
+                fail "E_SCANNER" "El scanner devolvió un error (${API_ERROR}): ${API_MSG}" ;;
+            esac
+          fi
+
+          GRADE=$(jq -r '.grade // empty' response.json)
+          [ -n "${GRADE}" ] || fail "E_NO_GRADE" "JSON válido pero sin 'grade'. Contenido: $(jq -c . response.json)" \
+            "Puede haber cambiado el formato de la API; revisa https://github.com/mdn/mdn-http-observatory"
+
+          # --- 5. Reporte ---
+          SCORE=$(jq -r '.score // "?"' response.json)
+          PASSED=$(jq -r '.tests_passed // "?"' response.json)
+          FAILED=$(jq -r '.tests_failed // "?"' response.json)
+          TOTAL=$(jq -r '.tests_quantity // "?"' response.json)
+          DETAILS=$(jq -r '.details_url // ""' response.json)
+          SCANNED=$(jq -r '.scanned_at // ""' response.json)
+          SITE_STATUS=$(jq -r '.status_code // "?"' response.json)
+
+          echo "Grade: ${GRADE}"
+          echo "Required: ${REQUIRED_GRADE}"
+          echo "Score: ${SCORE}/100"
+          echo "Tests: ${PASSED} passed, ${FAILED} failed, ${TOTAL} total"
+          echo "Site HTTP status: ${SITE_STATUS}"
+          echo "Scanned at: ${SCANNED}"
+          echo "Details: ${DETAILS}"
+          echo ""
+
+          if [ "${SITE_STATUS}" = "401" ] || [ "${SITE_STATUS}" = "403" ]; then
+            fail "E_PROTECTED" "El sitio respondió HTTP ${SITE_STATUS} al scanner: está detrás de autenticación." \
+              "Vercel → Project → Settings → Deployment Protection → cambia a 'Only Preview Deployments'."
+          fi
+
+          set +e
+          curl -sS -I -L --max-time 30 "https://${TARGET_URL}" -o headers.txt 2>curl_headers.err
+          HDR_RC=$?
+          set -e
+
+          REQUIRED_HEADERS="strict-transport-security content-security-policy x-content-type-options x-frame-options referrer-policy permissions-policy"
+          MISSING=""
+
+          if [ "${HDR_RC}" -ne 0 ]; then
+            echo "Headers: ⚠️  no disponibles (curl exit ${HDR_RC}: $(cat curl_headers.err))"
+            : > headers.txt
+          else
+            echo "Headers:"
+            for h in ${REQUIRED_HEADERS}; do
+              if grep -qi "^${h}:" headers.txt; then
+                VAL=$(grep -i "^${h}:" headers.txt | head -n1 | cut -d: -f2- | sed 's/^ *//' | cut -c1-80)
+                echo "✓ ${h}: ${VAL}"
+              else
+                echo "✗ ${h}"
+                MISSING="${MISSING}${h}\n"
+              fi
+            done
+          fi
+
+          if [ -n "${MISSING}" ]; then
+            echo ""
+            echo "Missing Headers:"
+            printf "${MISSING}" | sed 's/^/- /'
+          fi
+
+          # --- 6. Veredicto ---
+          case "${GRADE}" in
+            "${REQUIRED_GRADE}"|"${REQUIRED_GRADE}+")
+              echo ""
+              echo "========================================"
+              echo "✅ SECURITY CHECK PASSED"
+              echo "========================================"
+              {
+                echo "### ✅ Security headers check passed"
+                echo ""
+                echo "**${TARGET_URL}** — Grade \`${GRADE}\` (score ${SCORE}/100)"
+                echo ""
+                echo "[Ver detalle](${DETAILS})"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0 ;;
+            *)
+              fail "E_GRADE" "Grade obtenido '${GRADE}', se requiere '${REQUIRED_GRADE}' (score ${SCORE}, ${FAILED} tests fallidos)." \
+                "Corrige los headers marcados con ✗ y revisa el detalle en ${DETAILS}" ;;
+          esac
+
+      - name: Upload scan output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-headers-scan
+          path: |
+            response.json
+            headers.txt
+          retention-days: 7
