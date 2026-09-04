@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TARGET_URL: ${{ vars.TARGET_URL || 'claro.com.do' }}
+      TARGET_URL: ${{ vars.TARGET_URL}}
       REQUIRED_GRADE: "A"
       OBS_API: "https://observatory-api.mdn.mozilla.net/api/v2/scan"
     steps:
