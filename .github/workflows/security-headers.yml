@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TARGET_URL: ${{ vars.TARGET_URL}}
+      TARGET_URL: ${{ vars.TARGET_URL} || 'https://moto-go-rental-jf52.vercel.app/'}
       REQUIRED_GRADE: "A"
       OBS_API: "https://observatory-api.mdn.mozilla.net/api/v2/scan"
     steps:
