@@ -1,0 +1,131 @@
+name: Security Headers Scan
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  security_headers_scan:
+    name: security_headers_scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_URL: ${{ vars.TARGET_URL || 'claro.com.do' }}
+      REQUIRED_GRADE: "A"
+      OBS_API: "https://observatory-api.mdn.mozilla.net/api/v2/scan"
+    steps:
+      - name: Run HTTP Observatory scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "========================================"
+          echo " SECURITY HEADERS SCAN"
+          echo "========================================"
+          echo ""
+          echo "URL: ${TARGET_URL}"
+          echo ""
+
+          HTTP_CODE=$(curl -sS -X POST \
+            --get "${OBS_API}" \
+            --data-urlencode "host=${TARGET_URL}" \
+            --max-time 120 \
+            --retry 2 --retry-delay 10 \
+            -o response.json \
+            -w '%{http_code}') || {
+              echo "❌ ERROR: fallo de red / timeout al contactar HTTP Observatory."
+              exit 1
+            }
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "❌ ERROR: HTTP Observatory respondió HTTP ${HTTP_CODE}"
+            head -c 2000 response.json || true; echo ""
+            exit 1
+          fi
+
+          if ! jq -e . response.json >/dev/null 2>&1; then
+            echo "❌ ERROR: la respuesta no es JSON válido."
+            head -c 2000 response.json || true; echo ""
+            exit 1
+          fi
+
+          API_ERROR=$(jq -r '.error // empty' response.json)
+          if [ -n "${API_ERROR}" ]; then
+            echo "❌ ERROR del scanner: ${API_ERROR} — $(jq -r '.message // ""' response.json)"
+            exit 1
+          fi
+
+          GRADE=$(jq -r '.grade // empty' response.json)
+          if [ -z "${GRADE}" ]; then
+            echo "❌ ERROR: no se encontró 'grade' en la respuesta."
+            cat response.json; echo ""
+            exit 1
+          fi
+
+          SCORE=$(jq -r '.score // "?"' response.json)
+          PASSED=$(jq -r '.tests_passed // "?"' response.json)
+          TOTAL=$(jq -r '.tests_quantity // "?"' response.json)
+          DETAILS=$(jq -r '.details_url // ""' response.json)
+
+          echo "Grade: ${GRADE}"
+          echo "Required: ${REQUIRED_GRADE}"
+          echo "Score: ${SCORE}  (tests passed: ${PASSED}/${TOTAL})"
+          echo "Details: ${DETAILS}"
+          echo ""
+
+          curl -sS -I -L --max-time 30 "https://${TARGET_URL}" -o headers.txt || {
+            echo "⚠️  No se pudieron obtener los headers directamente del sitio."
+            : > headers.txt
+          }
+
+          REQUIRED_HEADERS="strict-transport-security content-security-policy x-content-type-options x-frame-options referrer-policy permissions-policy"
+          MISSING=""
+
+          echo "Headers:"
+          for h in ${REQUIRED_HEADERS}; do
+            if grep -qi "^${h}:" headers.txt; then
+              echo "✓ ${h}"
+            else
+              echo "✗ ${h}"
+              MISSING="${MISSING}${h}\n"
+            fi
+          done
+
+          if [ -n "${MISSING}" ]; then
+            echo ""
+            echo "Missing Headers:"
+            printf "${MISSING}" | sed 's/^/- /'
+          fi
+
+          echo ""
+          echo "========================================"
+          case "${GRADE}" in
+            "${REQUIRED_GRADE}"|"${REQUIRED_GRADE}+")
+              echo "✅ SECURITY CHECK PASSED"
+              echo "========================================"
+              exit 0
+              ;;
+            *)
+              echo "❌ SECURITY CHECK FAILED"
+              echo "========================================"
+              echo ""
+              echo "Expected: ${REQUIRED_GRADE}"
+              echo "Actual: ${GRADE}"
+              echo ""
+              echo "Merge must be blocked."
+              exit 1
+              ;;
+          esac
+
+      - name: Upload scan output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-headers-scan
+          path: |
+            response.json
+            headers.txt
+          retention-days: 7
